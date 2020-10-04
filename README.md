@@ -1,1 +1,1 @@
-![struct_malloc_chunk] (MallocInternalImages/struct_malloc_chunk.png)
+![struct_malloc_chunk](MallocInternalImages/struct_malloc_chunk.png)
