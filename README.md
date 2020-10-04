@@ -32,11 +32,12 @@ glibc的malloc是面向chunk设计的（chunk-oriented）。它把一大块内�
   
 为了确保chunk的有效负荷区足以容纳malloc所需的额外信息，一个chunk的最小规模为`4 * sizeof(void *)`（除非`size_t`和`void *`不一样大）（）。并且，若编译平台ABI要求额外的内存对齐，最小规模可能还会更大。`prev_size`字段并没有计入chunk的大小中，因为当chunk较小时`fd_nextsize`和`bk_nextsize`指针不会被启用，而chunk较大时其尾部则有充足空间供记载额外信息。  
   
-![Image of struct malloc_chunk](MallocInternalImages/struct_malloc_chunk.png)  
+![struct_malloc_chunk](MallocInternalImages/struct_malloc_chunk.png)  
   
 由于chunk在内存中彼此相邻，如果用户知道某个heap中第一个chunk（地址最低的那个）的地址，用户可以使用chunk中的size信息递增地址来遍历该heap中所有chunk，尽管这种办法难以察觉到何时到达heap的最后一个chunk。  
 从`mmap()`得到的heap总是被对齐到2的幂的地址上。因此，当一个chunk属于`mmap()`得到的heap中时（换句话说，它的A位flag被置为1），可以基于该chunk的地址计算得到所属heap的`heap_info`字段的地址。  
-？？图片
+  
+![chunk to heap](MallocInternalImages/chunk2heap.png)    
 
 *译注：`free()`的API只提供内存地址而未提供内存大小，因此malloc需要额外的簿记信息来管理内存*  
 *译注：原文为word，准确地说应是“用于表示chunk大小的整形”的大小，默认情况下可简单粗暴地理解为sizeof(size_t)。但个其实是属于malloc可以自定义的部分，比如malloc可以被调成使用4字节大小的size_t却使用8字节大小的指针*  
@@ -53,8 +54,9 @@ Arenas与Heaps
 每个arena从一个或多个heap中获取内存。Main arena使用进程的初始heap（从.bss段结束处开始的heap）。额外创建的arena在当前持有的heap已经消耗殆尽时，会通过`mmap()`（从操作系统处）获得更多的内存来扩充它们的heap。每个arena都会跟踪一个名为top的特别chunk，它通常是最大的可用chunk，且指向最近（从操作系统处）获得的内存。  
   
 从操作系统处通过`mmap()`获得初始内存的arena会将这块内存作为它初始的heap，并从中向用户分配内存：  
-？？图片  
   
+![heaps and arenas](MallocInternalImages/heaps_and_arenas/png)  
+
 每个arena中的chunks要么被分配给用户程序使用，要么处于被释放的状态。Arena不会跟踪被用户程序使用中的chunks的情况。基于大小和使用历史，被释放的chunk被存放在多种不同的列**表中，以便未来高效地满足内存请求。这种列表被称为“bins”，以下对各种bin进行介绍：  
 **Fast**  
     Small chunks（）被存放在其对应size的bin中——*意思是fastbins和smallbins（见下文）都是把相同size的small chunks放到同一条链表里。（malloc定义small的范围是[0, 512 bytes]）。它们之间的第一个区别是，Fastbins内的chunks的来源是刚被`free()`且大小在[0, 128 bytes]的chunks（）；而smallbins的chunks来自于unsorted bin（见下文）。*。加入到某一fastbin中的chunk不会与其相邻的chunk合并——fastbin的操作逻辑被最简化以保持快速访问（bin如其名）。Fastbins内的chunks会在需要时被移动到其他bin里去（什么时候？）。Fastbins的chunks以单向链表的形式存放，因为同一个fastbin内的chunks的大小相同，且不会从空闲链表中间取出chunks——*即fastbins像栈一样遵循FILO的逻辑，每次都把刚释放的对应size的chunk作为新的头结点，而分配时也是把某fastbin的第一个chunk分配给用户（如果有的话），这样可以获得更好的缓存本地性（Locality），因为刚释放的内存很可能还在CPU缓存里。*  
@@ -65,16 +67,14 @@ Arenas与Heaps
 **Large**  
     一个largebin中会包含不同size的chunks，它们按降序排列，并且在分配时采用best-fit算法寻找最匹配的块，chunk中多出请求的内存会被切除，作为remainder chunk添加到unsorted bin中。  
   
-？？图片  
+![bin chains](MallocInternalImages/bin_chains.png)  
   
 在上图和下图中，所有指针都指向一个chunk（`mchunkptr`）。由于bins不是chunks（它们是元素为一对`forward/back`指针的数组），一个小技巧被用于为一个mchunkptr提供一个类似于chunk的对象，这个对象正好重叠了数个bins，使得`foward`或`back`指针能被正确用于指向相应的bin。  
   
 由于需要找到最佳适配的large chunk，large chunks有额外的双向链表连接（回忆上文中chunk结构体定义中的`fw_nextsize/bk_nextsize`）——这一对指针把一个large bin内每一个size的第一个chunk按size从大到小连接起来。这个设计是为了便于malloc能快速地遍历一个bin来寻找第一个足够大的chunk。如果有多个相同size的large bins，那么通常最佳适配size的第二个chunk会被取出，这样可以避免对size链表的修改（即减少一对指针的修改）。出于同样的考虑，添加large chunk到bin中时会把它添加到同样size的chunk之后（如果有的话）。  
   
-？？图片  
+![next_size chains](MallocInternalImages/nextsize_chains.png)  
   
-
-
 *译注：在典型的64位系统中，size_t和指针的大小为8个字节，先由`#define MAX_FAST_SIZE     (80 * SIZE_SZ / 4)`计算得出最大的fastbin内的chunk size为160 bytes，再要减去chunk的overhead（2个size和2个指针，见前文对chunk结构体的描述）得到最大有效负荷为128 bytes。因此，在这种情况下，fastbins响应内存请求的默认范围是[0, 128 bytes]。*  
 
 
