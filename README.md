@@ -55,7 +55,7 @@ Arenas与Heaps
   
 从操作系统处通过`mmap()`获得初始内存的arena会将这块内存作为它初始的heap，并从中向用户分配内存：  
   
-![heaps and arenas](MallocInternalImages/heaps_and_arenas._png)  
+![heaps and arenas](MallocInternalImages/heaps_and_arenas.png)  
 
 每个arena中的chunks要么被分配给用户程序使用，要么处于被释放的状态。Arena不会跟踪被用户程序使用中的chunks的情况。基于大小和使用历史，被释放的chunk被存放在多种不同的列**表中，以便未来高效地满足内存请求。这种列表被称为“bins”，以下对各种bin进行介绍：  
 **Fast**  
