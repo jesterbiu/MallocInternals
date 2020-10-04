@@ -33,7 +33,7 @@ glibc的malloc是面向chunk设计的（chunk-oriented）。它把一大块内�
 为了确保chunk的有效负荷区足以容纳malloc所需的额外信息，一个chunk的最小规模为`4 * sizeof(void *)`（除非`size_t`和`void *`不一样大）（）。并且，若编译平台ABI要求额外的内存对齐，最小规模可能还会更大。`prev_size`字段并没有计入chunk的大小中，因为当chunk较小时`fd_nextsize`和`bk_nextsize`指针不会被启用，而chunk较大时其尾部则有充足空间供记载额外信息。  
   
 ![Image of struct malloc_chunk]
-(./MallocInternalImages/struct_malloc_chunk.png)  
+(MallocInternalImages/struct_malloc_chunk.png)  
   
 由于chunk在内存中彼此相邻，如果用户知道某个heap中第一个chunk（地址最低的那个）的地址，用户可以使用chunk中的size信息递增地址来遍历该heap中所有chunk，尽管这种办法难以察觉到何时到达heap的最后一个chunk。  
 从`mmap()`得到的heap总是被对齐到2的幂的地址上。因此，当一个chunk属于`mmap()`得到的heap中时（换句话说，它的A位flag被置为1），可以基于该chunk的地址计算得到所属heap的`heap_info`字段的地址。  
