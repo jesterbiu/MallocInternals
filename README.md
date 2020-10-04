@@ -85,9 +85,20 @@ glibc的malloc是面向chunk设计的（chunk-oriented）。它把一大块内�
   ***
   
 ## Thread Local Cache (tcache)  
+  
+尽管本malloc是能感知多线程的，但它也就真的只是感知而已。本malloc中没有为NUMA架构优化、协调线程局部性、按CPU核心分类线程等操作，它假设操作系统内核已经把这些问题处理好了。  
+  
+每个线程有一个仅限本线程使用的变量，该变量记录了本线程上次使用的arena。如果某线程a尝试使用一个arena，而此arena正被另一线程b使用，那么线程a将阻塞，直到这个arena可以被线程a使用（*暗示可能有不止一个线程在排队等待此 arena* ）。如果某线程第一次尝试访问arena，那么它会依次尝试：1）使用一个没有线程使用的空闲arena，2）创建一个新的（*回忆前文，arena 的最大个数受限于CPU核心数*），3）在全局的arena列表中尝试下一个arena。  
+  
+每个线程都有一个线程独有的缓存（被称为tcache），里面有一些小size的chunks，malloc可以无锁地分配它们而不需要加锁访问arena。这些在tcache里的chunks如同fastbins一般，以单链表数组的形式存放——它们的区别是tcache中的前后向指针直接指向chunk的有效负荷区，而不像arena内的chunk指针都指向chunk头部。每个bin里面存放着相同size的chunks，因此可以间接地以chunk size来索引该数组。另外一点与fastbins不同的是，tcache会限制每个bin内最多包含多少chunks（`tcache_count`）。如果某次内存请求中，根据请求的size查找到相应的tcache bin是空的，而下一个更大size的bin内有空闲chunk；此时malloc为了避免内存碎片化，不会分割tcache的chunk，而是直接退回去使用arena进行分配。  
+  
+![tcache](MallocInternalImages/tcache.png)  
+  
+***
+  
+## Malloc算法
 
-
-
+*原文的算法部分写得confusing，推荐阅读这篇以流程图形式讲解的文章：[理解glibc malloc：malloc()与free()原理图解](https://blog.csdn.net/maokelong95/article/details/52006379)  
 
 
 
