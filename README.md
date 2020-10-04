@@ -2,11 +2,11 @@
 本文是[MallocInternals](https://sourceware.org/glibc/wiki/MallocInternals)的译文。  
 
 ## `malloc`概览  
-GNU C运行库，也就是glibc，提供一些便捷的函数来管理应用被分配到的内存。glibc的malloc由ptmalloc（pthreads malloc）衍生而来，而后者又由dlmalloc（Doug Lea malloc）衍生而来。本malloc是一款采用heap style（堆风格）的分配器。与采用bitmap（位图）、数组或region（每个region内含有多个同样大小的内存block）（1）的实现不同，它管理一个或多个连续的内存区域（即heap或“堆”），而每个heap被分割成不同大小的内存chunk并组织起来。在以前，每个进程（）只有一个heap，而如今glibc的malloc允许一个进程有多个heap，每个都在其持有的地址空间内增长*。  
+GNU C运行库，也就是glibc，提供一些便捷的函数来管理应用被分配到的内存。glibc的malloc由ptmalloc（pthreads malloc）衍生而来，而后者又由dlmalloc（Doug Lea malloc）衍生而来。本malloc是一款采用heap style（堆风格）的分配器。与采用bitmap（位图）、数组或region（每个region内含有多个同样大小的内存block）<sub>1</sub>的实现不同，它管理一个或多个连续的内存区域（即heap或“堆”），而每个heap被分割成不同大小的内存chunk并组织起来。在以前，每个进程（）只有一个heap，而如今glibc的malloc允许一个进程有多个heap，每个都在其持有的地址空间内增长*。  
 因此，在本文中我们有以下通用的术语：  
   
 **Arena（分配区）**  
-    它是一个被一个或多个线程共享的数据结构，其包括一个多个堆，也包括由链表组织的空闲的内存chunk。每个线程会被指定从特定的分配区的free lists*分配到内存.  
+    它是一个被一个或多个线程共享的数据结构，其包括一个多个堆，也包括由链表组织的空闲的内存chunk。每个线程会被指定从特定的分配区的free lists分配到内存。  
 **Heap（堆）**  
     一块连续的内存区域，被分割成chunk以供被分配。每个heap属于且仅属于一个heap。  
 **Chunk（内存块）**  
@@ -15,7 +15,7 @@ GNU C运行库，也就是glibc，提供一些便捷的函数来管理应用被�
     进程可用的地址空间的一部分，它通常从物理内存或交换空间中来。  
 值得一提的是，本文中，我们提到“内存”为泛指——然而，glibc的malloc中存在与Linux或其他操作系统内核交互的代码，意味着“内存”是由操作系统的资源通过映射得到的，这种资源可以被返还给操作系统。这种“物理内存”和“虚拟内存”的区别与本文讨论的内容无关，除非特地提及。  
   
-*译注：在内存分配器算法语境下的region有特别意义？？补充论文引用，还没看论文就先不自作主张翻译*  
+*译注1：在内存分配器算法语境下的region有特别意义，（补充论文引用）还没看论文就先不自作主张翻译了。*  
 *译注：传统的计算机教学中，通常程序把.bss和stack之间的内存全部称为堆，但实际上这部分内存是由操作系统分批分配给进程的，且多次申请得到的内存区域未必连续。*  
 
 **什么是chunk？**  
@@ -55,7 +55,7 @@ Arenas与Heaps
   
 从操作系统处通过`mmap()`获得初始内存的arena会将这块内存作为它初始的heap，并从中向用户分配内存：  
   
-![heaps and arenas](MallocInternalImages/heaps_and_arenas.png)  
+![heaps and arenas](MallocInternalImages/heaps_and_arenas._png)  
 
 每个arena中的chunks要么被分配给用户程序使用，要么处于被释放的状态。Arena不会跟踪被用户程序使用中的chunks的情况。基于大小和使用历史，被释放的chunk被存放在多种不同的列**表中，以便未来高效地满足内存请求。这种列表被称为“bins”，以下对各种bin进行介绍：  
 **Fast**  
