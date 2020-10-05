@@ -1,7 +1,14 @@
-# Malloc Internals  
-本文是[MallocInternals](https://sourceware.org/glibc/wiki/MallocInternals)的译文。  
-
-## `malloc`概览  
+# Malloc Internals 
+*（更新于2020.10.5）*  
+## 前言
+本文是[MallocInternals](https://sourceware.org/glibc/wiki/MallocInternals)的译文，主要介绍glibc中[`malloc()`](https://github.com/lattera/glibc/blob/master/malloc/malloc.c)的实现。由于笔者水平有限，加上原文的确有模棱两可之处，为了可读性，基本采用意译并加以注释，笔者直接添加在原文中的讲解以斜体标出。  
+  
+这篇文章假设读者已经了解虚拟内存的工作方式，了解`mmap()`的概念。Malloc的定位是一个generic allocator（通用或者泛型的内存分配器），它要尽可能地兼顾不同场景下的动态内存分配及空闲内存管理。具体地说：
+- 从allocator的角度，它先从操作系统或其他allocator处请求一块较大的内存，再按需分配给用户，剩余的或用户返还的内存由它管理；  
+- 从用户的角度，用户不需要了解操作系统的内存API，也不一定需要考虑内存分配模式对性能的影响，这部分由allocator代劳；  
+- 从操作系统的角度，它每次会分配一整块动态内存给某进程，它不关心这块内存当前是由用户还是某allocator管理——换句话说，用户代码中申请的内存通常小于（甚至远小于）操作系统实际分配给本进程的内存。由上可知，malloc等allocators管理空闲内存是需要一定成本的，用空间（内存簿记信息）、时间（内存分配、释放的算法）换取内存使用的灵活度。  
+  
+## Malloc概览  
 GNU C运行库，也就是glibc，提供一些便捷的函数来管理应用被分配到的内存。glibc的malloc由ptmalloc（pthreads malloc）衍生而来，而后者又由dlmalloc（Doug Lea malloc）衍生而来。本malloc是一款采用heap style（堆风格）的分配器。与采用bitmap（位图）、数组或region（每个region内含有多个同样大小的内存block）<sup>1</sup>的实现不同，它管理一个或多个连续的内存区域（即heap或“堆”），而每个heap被分割成不同大小的内存chunk并组织起来。在以前，每个进程只有一个heap<sup>2</sup>，而如今glibc的malloc允许一个进程有多个heap，每个都在其持有的地址空间内增长*。  
 因此，在本文中我们有以下通用的术语：  
     
@@ -98,11 +105,34 @@ glibc的malloc是面向chunk设计的（chunk-oriented）。它把一大块内�
   
 ## Malloc算法
 
-*原文的算法部分写得confusing，推荐阅读这篇以流程图形式讲解的文章：[理解glibc malloc：malloc()与free()原理图解](https://blog.csdn.net/maokelong95/article/details/52006379)  
+原文的算法部分写得confusing，推荐阅读这篇以流程图形式讲解的文章：[理解glibc malloc：malloc()与free()原理图解](https://blog.csdn.net/maokelong95/article/details/52006379)  
+  
+***
+  
+## 切换arenas  
+  
+在进程生命周期内，一个线程对应使用的arena通常是不变的。但以下说明了一个线程在特殊情况下改变自己对应的arena：  
+  
+1. 线程无法从其当前对应的arena中获得所需内存。  
+    1.1 假设已经尝试合并arena内的空闲内存块，搜索遍了空闲链表，也处理了unsorted bin等。  
+    1.2 假设已经尝试通过`sbrk()`或通过`mmap()`<sup>1</sup>扩张heap，但都失败了。  
+2. 假如该线程之前使用的arena非main arena（这种arena的heap通过`mmap()`得到），那么该线程通过`arena_get_entry()`切换到main arena进行分配；假如该线程之前使用main arena，那么它会在arenas列表中寻找另一个arena（因为main arena只有一个，那么它寻找到的只能是`mmap()`得到的non-main arena），或者干脆新建一个arena进行分配。  
+3. 作为一种优化，单线程程序中不会运行2.，而是认为分配失败，直接返回`ENOMEM`（失败的前提如1.，即无法通过`sbrk()`修改栈顶，并且`mmap()`也失败了）。  
+  
 
+在内存不足的情况下，一个线程可能频繁地切换arena，在基于`sbrk()`的main arena和基于`mmap()`的non-main arena中反复横跳，尝试满足用户的内存申请。
+    
+<small>1：目前的malloc实现中似乎使用了别的方法来修改程序初始heap的大小，并且`brk/sbrk()`早在2001年就被POSIX标为legacy API了。</small>  
 
+ ***
+  
+## 依赖的平台阈值和常量  
 
-
+以下表中的值仅供参考，不保证正确性，但它们是比较有代表性的，感兴趣的可以直接去源码里面查这些值的定义：  
+  
+![Platform-specific Threasholds and Constants](MallocInternalImages/malloc_thrhds_consts.png)  
+  
+（未完待续）
 
 
 
